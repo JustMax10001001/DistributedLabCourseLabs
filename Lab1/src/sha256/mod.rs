@@ -1,5 +1,7 @@
 #![allow(non_upper_case_globals)]
 
+use std::ops::Not;
+
 const h0: u32 = 0x6a09e667;
 const h1: u32 = 0xbb67ae85;
 const h2: u32 = 0x3c6ef372;
@@ -22,11 +24,74 @@ const k: [u32; 64] = [
 
 #[allow(non_snake_case)]
 pub fn digest(bytes: &Vec<u8>) -> [u8; 32] {
-    let hash: [u8; 32] = [0; 32];
+    let mut hash: [u8; 32] = [0; 32];
+    let mut H: [u32; 8] = [h0, h1, h2, h3, h4, h5, h6, h7];
 
     let L: u64 = (bytes.len() as u64) * 8;
 
     let paddedMessage = pad(bytes, L);
+
+    for chunk in paddedMessage.chunks(16) {
+        let mut w: [u32; 64] = [0; 64];
+
+        for i in 0..64 {
+            if i < 16 {
+                w[i] = chunk[i];
+
+                continue;
+            }
+
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^
+                w[i - 15] >> 3;
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^
+                w[i - 2] >> 10;
+
+            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+        }
+
+        let mut a = H[0];
+        let mut b = H[1];
+        let mut c = H[2];
+        let mut d = H[3];
+        let mut e = H[4];
+        let mut f = H[5];
+        let mut g = H[6];
+        let mut h = H[7];
+
+        for i in 0..64 {
+            let S1 = (e.rotate_right(6)) ^ (e.rotate_right(11)) ^ (e.rotate_right(25));
+            let ch = (e & f) ^ (e.not() & g);
+            let t1 = h.wrapping_add(S1).wrapping_add(ch).wrapping_add(k[i]).wrapping_add(w[i]);
+            let S0 = (a.rotate_right(2)) ^ (a.rotate_right(13)) ^ (a.rotate_right(22));
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let t2 = S0.wrapping_add(maj);
+
+            h = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(t1);
+            d = c;
+            c = b;
+            b = a;
+            a = t1.wrapping_add(t2);
+        }
+
+        H[0] = H[0].wrapping_add(a);
+        H[1] = H[1].wrapping_add(b);
+        H[2] = H[2].wrapping_add(c);
+        H[3] = H[3].wrapping_add(d);
+        H[4] = H[4].wrapping_add(e);
+        H[5] = H[5].wrapping_add(f);
+        H[6] = H[6].wrapping_add(g);
+        H[7] = H[7].wrapping_add(h);
+    }
+
+    for i in 0..32 {
+        let j = i / 4;
+        let offset = 3 - i % 4;
+
+        hash[i] = ((H[j] >> (8 * offset)) & 0xff) as u8;
+    }
 
     hash
 }
@@ -158,5 +223,20 @@ mod tests {
 
         let last_dword = result.last().unwrap();        // test whether low dword of L is set properly
         assert_eq!(*last_dword, 32);
+    }
+
+    #[test]
+    fn test_digest_a() {
+        let data: Vec<u8> = vec![97];       // small letter a
+
+        let result = crate::sha256::digest(&data);
+
+        for byte in result {
+            print!("{:x}", byte);
+        }
+
+        println!();
+
+        assert_eq!(result.len(), 32);
     }
 }
