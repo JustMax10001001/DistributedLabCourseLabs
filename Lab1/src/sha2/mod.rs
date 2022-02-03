@@ -159,7 +159,7 @@ impl Sha256Gen {
 
 #[cfg(test)]
 mod tests {
-    use crate::sha256::Sha256Gen;
+    use crate::sha2::Sha256Gen;
 
     #[test]
     fn test_pad_empty() {

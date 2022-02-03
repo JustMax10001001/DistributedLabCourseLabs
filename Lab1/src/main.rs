@@ -1,6 +1,6 @@
-mod sha256;
+mod sha2;
 
-use crate::sha256::{Sha256Gen};
+use crate::sha2::{Sha256Gen};
 
 fn main() {
     println!("Hello, world!");
