@@ -2,14 +2,9 @@ use std::ops::Not;
 
 const BLOCK_LENGTH_BYTES: usize = 64;       // 512 bits
 
-const H0: u32 = 0x6a09e667;
-const H1: u32 = 0xbb67ae85;
-const H2: u32 = 0x3c6ef372;
-const H3: u32 = 0xa54ff53a;
-const H4: u32 = 0x510e527f;
-const H5: u32 = 0x9b05688c;
-const H6: u32 = 0x1f83d9ab;
-const H7: u32 = 0x5be0cd19;
+const HASH_INIT_VECTOR: [u32; 8] = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+];
 
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -23,8 +18,8 @@ const K: [u32; 64] = [
 ];
 
 pub struct Sha256Gen {
-    int_hash: [u32; 8],
     // intermediary hash
+    int_hash: [u32; 8],
     last_block: [u8; 64],
     last_block_length: usize,
     total_length: usize,
@@ -33,7 +28,7 @@ pub struct Sha256Gen {
 impl Sha256Gen {
     pub fn new() -> Sha256Gen {
         Sha256Gen {
-            int_hash: [H0, H1, H2, H3, H4, H5, H6, H7],
+            int_hash: HASH_INIT_VECTOR,
             last_block: [0; 64],
             last_block_length: 0,
             total_length: 0,
@@ -162,241 +157,81 @@ impl Sha256Gen {
     }
 }
 
-#[allow(non_snake_case, dead_code)]
-pub fn digest(bytes: &[u8]) -> [u8; 32] {
-    let mut H: [u32; 8] = [H0, H1, H2, H3, H4, H5, H6, H7];
-
-    let L = bytes.len() * 8;
-
-    let paddedMessage = pad(bytes, L);
-
-    for chunk in paddedMessage.chunks(16) {
-        let mut w: [u32; 64] = [0; 64];
-
-        for i in 0..64 {
-            if i < 16 {
-                w[i] = chunk[i];
-
-                continue;
-            }
-
-            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^
-                w[i - 15] >> 3;
-            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^
-                w[i - 2] >> 10;
-
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
-        }
-
-        let mut a = H[0];
-        let mut b = H[1];
-        let mut c = H[2];
-        let mut d = H[3];
-        let mut e = H[4];
-        let mut f = H[5];
-        let mut g = H[6];
-        let mut h = H[7];
-
-        for i in 0..64 {
-            let S1 = (e.rotate_right(6)) ^ (e.rotate_right(11)) ^ (e.rotate_right(25));
-            let ch = (e & f) ^ (e.not() & g);
-            let t1 = h.wrapping_add(S1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
-            let S0 = (a.rotate_right(2)) ^ (a.rotate_right(13)) ^ (a.rotate_right(22));
-            let maj = (a & b) ^ (a & c) ^ (b & c);
-            let t2 = S0.wrapping_add(maj);
-
-            h = g;
-            g = f;
-            f = e;
-            e = d.wrapping_add(t1);
-            d = c;
-            c = b;
-            b = a;
-            a = t1.wrapping_add(t2);
-        }
-
-        H[0] = H[0].wrapping_add(a);
-        H[1] = H[1].wrapping_add(b);
-        H[2] = H[2].wrapping_add(c);
-        H[3] = H[3].wrapping_add(d);
-        H[4] = H[4].wrapping_add(e);
-        H[5] = H[5].wrapping_add(f);
-        H[6] = H[6].wrapping_add(g);
-        H[7] = H[7].wrapping_add(h);
-    }
-
-    let mut hash: [u8; 32] = [0; 32];
-
-    for i in 0..32 {
-        let j = i / 4;
-        let offset = 3 - i % 4;
-
-        hash[i] = ((H[j] >> (8 * offset)) & 0xff) as u8;
-    }
-
-    hash
-}
-
-#[allow(non_snake_case)]
-fn pad(messageBytes: &[u8], L: usize) -> Vec<u32> {
-    let totalBits = messageBytes.len() * 8;
-
-    let mut paddingLength = 512 - totalBits % 512;
-
-    if paddingLength < 65 {
-        paddingLength += 512;
-    }
-
-    let chunkCount = (totalBits + paddingLength) / 32;
-
-    let mut chunks = Vec::with_capacity(chunkCount);
-
-    for quad in messageBytes.chunks(4) {
-        let chunk = if quad.len() == 4 {
-            ((quad[0] as u32) << 24) | ((quad[1] as u32) << 16) |
-                ((quad[2] as u32) << 8) | (quad[3] as u32)
-        } else {
-            let mut shift = 24;
-            let mut partialChunk = 0u32;
-            for single in quad {
-                partialChunk |= (*single as u32) << shift;
-
-                shift -= 8;
-            }
-
-            partialChunk
-        };
-
-        chunks.push(chunk);
-    }
-
-    // pad last chunk
-    let zero_bits_count = paddingLength - 65;
-
-    match chunks.last_mut() {
-        None => { chunks.push(1 << 31); }
-        Some(lastChunk) => {
-            if L % 32 == 0 {
-                chunks.push(1 << 31);
-            } else {
-                *lastChunk |= 1u32 << (zero_bits_count % 32);
-            }
-        }
-    }
-
-    /*if L % 32 != 0 && let Some(lastChunk) = chunks.last_mut() {
-        *lastChunk |= 1u32 << (K % 32);
-    } else {
-        chunks.push(1 << 31);
-    }*/
-
-    // add zero chunks
-    let zeroChunks = zero_bits_count / 32;
-    for _ in 0..zeroChunks {
-        chunks.push(0)
-    }
-
-    // add L to the end
-    let hL = (L >> 32) as u32;
-    chunks.push(hL);
-
-    let lL = (L & 0xFFFFFFFF) as u32;
-    chunks.push(lL);
-
-    //panic!("lol");
-
-    chunks
-}
-
 #[cfg(test)]
 mod tests {
     use crate::sha256::Sha256Gen;
 
     #[test]
     fn test_pad_empty() {
-        let zero_vec: Vec<u8> = Vec::new();
+        let gen = Sha256Gen::new();
 
-        let result = crate::sha256::pad(&zero_vec, 0);
-        assert_eq!(result.len(), 16)
+        let padding = gen.create_padding();
+        assert_eq!(padding.len(), 64);
     }
 
     #[test]
     fn test_pad_single_zero() {
-        let zero_vec: Vec<u8> = vec![0];
+        let mut gen = Sha256Gen::new();
 
-        let result = crate::sha256::pad(&zero_vec, 8);
+        gen.update(&[0]);
 
-        assert_eq!(result.len(), 16);
+        let padding = gen.create_padding();
+        assert_eq!(padding.len(), 63);
 
-        let first_dword = result.first().unwrap();     // test whether 1 is set properly
-        assert_eq!(*first_dword, 0x00800000);
+        let first_byte = padding[0];     // test whether 1 is set properly
+        assert_eq!(first_byte, 0x80);
 
-        let last_dword = result.last().unwrap();        // test whether low dword of L is set properly
-        assert_eq!(*last_dword, 8);
+        let last_dword = padding[62];    // test whether length is set properly
+        assert_eq!(last_dword, 8);
     }
 
     #[test]
     fn test_pad_four_zeros() {
-        let zero_vec: Vec<u8> = vec![0, 0, 0, 0];
+        let mut gen = Sha256Gen::new();
 
-        let result = crate::sha256::pad(&zero_vec, zero_vec.len() * 8);
+        gen.update(&[0; 4]);
 
-        assert_eq!(result.len(), 16);
+        let padding = gen.create_padding();
 
-        let second_dword = result[1];                    // test whether 1 is set properly
-        assert_eq!(second_dword, 0x80000000);
+        assert_eq!(padding.len(), 60);
 
-        let last_dword = result.last().unwrap();        // test whether low dword of L is set properly
-        assert_eq!(*last_dword, 32);
+        let padding_begin_byte = padding[0];    // test whether 1 is set properly
+        assert_eq!(padding_begin_byte, 0x80);
+
+        let last_byte = padding[59];            // test whether length is set properly
+        assert_eq!(last_byte, 32);
     }
 
     #[test]
-    fn test_pad_four_values() {
-        let zero_vec: Vec<u8> = vec![0xaa, 0xbb, 0xcc, 0xdd];
+    fn test_digest_empty() {
+        let test_vector: [u8; 32] = [
+            0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
+            0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
+            0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c,
+            0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55
+        ];
 
-        let result = crate::sha256::pad(&zero_vec, zero_vec.len() * 8);
+        let mut gen = Sha256Gen::new();
 
-        assert_eq!(result.len(), 16);
-
-        let first_dword = result.first().unwrap();     // test whether message is not corrupted
-        assert_eq!(*first_dword, 0xaabbccdd);
-
-        let second_dword = result[1];                    // test whether 1 is set properly
-        assert_eq!(second_dword, 0x80000000);
-
-        let last_dword = result.last().unwrap();        // test whether low dword of L is set properly
-        assert_eq!(*last_dword, 32);
-    }
-
-    #[test]
-    fn test_digest_a() {
-        let data: Vec<u8> = vec![97];       // small letter a
-
-        let result = crate::sha256::digest(&data);
-
-        for byte in result {
-            print!("{:x}", byte);
-        }
-
-        println!();
+        let result = gen.digest();
 
         assert_eq!(result.len(), 32);
+
+        assert_eq!(result, test_vector);
     }
 
     #[test]
-    fn test_digest_b() {
-        let test_str = "BTW, The naming conventions for conversion functions are helpful in situations like these, because they allow you to know approximately what name you might be looking for.";
-        let data = test_str.as_bytes();
+    fn test_multi_update_vs_single_pass() {
+        let mut gen_single = Sha256Gen::new();
+        gen_single.update(&[97, 68]);
+        let result_single = gen_single.digest();
 
-        let result = crate::sha256::digest(data);
+        let mut gen_multi = Sha256Gen::new();
+        gen_multi.update(&[97]);
+        gen_multi.update(&[68]);
+        let result_multi = gen_multi.digest();
 
-        for byte in result {
-            print!("{:x}", byte);
-        }
-
-        println!();
-
-        assert_eq!(result.len(), 32);
+        assert_eq!(result_single, result_multi);
     }
 
     #[test]
